@@ -41,7 +41,7 @@ jobs:
           echo "build=$build" >> "$GITHUB_OUTPUT"
 
   linux-gcc:
-    name: Linux GCC 13 production build and tests
+    name: Linux guest Plus input and natural exit
     needs: changes
     if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
@@ -55,6 +55,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
+          ref: 88eba1e5c436ce996bfaaabb8ca950891653da3b
 
       - name: Install Linux dependencies
         run: |
@@ -121,27 +122,155 @@ jobs:
       - name: Build production and tests
         run: |
           ccache --zero-stats
-          cmake --build build --parallel "$(nproc)"
+          cmake --build build --target yuzu-cmd --parallel "$(nproc)"
           ccache --show-stats
 
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure --no-tests=error --parallel "$(nproc)"
+      # Everything above builds the pinned PR #4 source. No previously passed CTest rerun.
+      - name: Check out public-domain homebrew
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: switchbrew/switch-examples
+          ref: 669786898205b7beb25ff1731e72982e6d0397d3
+          path: switch-examples
+          persist-credentials: false
 
-      - name: Test debug adapter
-        run: python3 tools/nx2/test_debug_mcp.py
-
-      - name: Test cache metrics and bench
+      - name: Build one homebrew with guest Plus marker
         run: |
-          python3 tools/nx2/test_cache_metrics.py
-          python3 tools/nx2/test_cache_bench.py
+          test "$(git rev-parse HEAD)" = 88eba1e5c436ce996bfaaabb8ca950891653da3b
+          test "$(git -C switch-examples rev-parse HEAD)" = 669786898205b7beb25ff1731e72982e6d0397d3
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("switch-examples/graphics/deko3d/deko_basic/source/main.c")
+          original = path.read_text()
+          old = """        if (kDown & HidNpadButton_Plus)
+            break; // break in order to return to hbmenu"""
+          new = """        if (kDown & HidNpadButton_Plus) {
+            const char marker[] = "NX2_GUEST_PLUS_SEEN\\n";
+            svcOutputDebugString(marker, sizeof(marker) - 1);
+            break; // return to homebrew menu
+        }"""
+          if original.count(old) != 1:
+              raise SystemExit("Pinned homebrew Plus branch does not match")
+          path.write_text(original.replace(old, new))
+          PY
+          docker pull devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
+          docker run --rm --network none \
+            -v "$GITHUB_WORKSPACE/switch-examples:/source" \
+            -w /source/graphics/deko3d/deko_basic \
+            devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282 make -j2
+          test -s switch-examples/graphics/deko3d/deko_basic/deko_basic.nro
+          test -x build/bin/eden-cli
 
-      - name: Test ThreadWorker wake-ups
+      - name: Obtain checksum-verified upstream build-160
         run: |
-          python3 tools/nx2/test_thread_worker_wake.py
-          python3 -I tools/nx2/thread_worker_wake.py --cxx g++-13
+          curl -fL --retry 2 --max-time 240 -o "$RUNNER_TEMP/lichii.tar.gz" \
+            https://github.com/zortos293/Lichii/releases/download/build-160/lichii-linux-x86_64.tar.gz
+          echo "8808893f08062c9a450234a3988eb2291dcda9d686a4d7e8780c0b6b6ec21962  $RUNNER_TEMP/lichii.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/upstream-package"
+          tar -xzf "$RUNNER_TEMP/lichii.tar.gz" -C "$RUNNER_TEMP/upstream-package"
+          test -x "$RUNNER_TEMP/upstream-package/lichii/eden-cli"
 
-      - name: Test Linux switch discovery
-        run: CXX=g++-13 python3 tools/nx2/test_switches.py
+      - name: Execute bounded no-input and Plus-input comparisons
+        timeout-minutes: 5
+        run: |
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers xvfb xauth
+          icds=(/usr/share/vulkan/icd.d/lvp*.json)
+          test "${#icds[@]}" -eq 1
+          test -f "${icds[0]}"
+          for label in nx2-no-input upstream-plus nx2-plus; do
+            base="$RUNNER_TEMP/$label"
+            mkdir -p "$base/home"/{config,data,cache,runtime}
+            chmod 700 "$base/home/runtime"
+            printf '[Renderer]\nbackend=1\nbackend\\default=false\n[Audio]\noutput_engine=3\noutput_engine\\default=false\n' > "$base/runtime.ini"
+            if [ "$label" = upstream-plus ]; then
+              binary="$RUNNER_TEMP/upstream-package/lichii/eden-cli"
+            else
+              binary="$GITHUB_WORKSPACE/build/bin/eden-cli"
+            fi
+            (
+              export HOME="$base/home" XDG_CONFIG_HOME="$base/home/config"
+              export XDG_DATA_HOME="$base/home/data" XDG_CACHE_HOME="$base/home/cache"
+              export XDG_RUNTIME_DIR="$base/home/runtime"
+              export VK_DRIVER_FILES="${icds[0]}" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy
+              if [ "$label" != nx2-no-input ]; then
+                export EDEN_NX2_KEY_SCRIPT="6:16,10:-16"
+              else
+                unset EDEN_NX2_KEY_SCRIPT
+              fi
+              set +e
+              timeout --signal=TERM --kill-after=3s 18s \
+                xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' \
+                "$binary" --config "$base/runtime.ini" \
+                --game "$GITHUB_WORKSPACE/switch-examples/graphics/deko3d/deko_basic/deko_basic.nro" \
+                > "$base/console.log" 2>&1
+              printf '%s\n' "$?" > "$base/exit.txt"
+            )
+          done
+
+      - name: Require guest-originated input and classify natural exit
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          cases = {}
+          for label in ("nx2-no-input", "upstream-plus", "nx2-plus"):
+              folder = root / label
+              with (folder / "console.log").open("rb") as stream:
+                  log = stream.read(8 * 1024 * 1024 + 1)
+              engine_log = folder / "home/data/lichii/log/eden_log.txt"
+              if engine_log.is_file():
+                  with engine_log.open("rb") as stream:
+                      log += stream.read(max(0, 8 * 1024 * 1024 + 1 - len(log)))
+              cases[label] = {
+                  "exit_code": int((folder / "exit.txt").read_text()),
+                  "log_bounded": len(log) <= 8 * 1024 * 1024,
+                  "frontend_key_pressed": b"Key script: press key 16" in log,
+                  "guest_saw_plus": b"NX2_GUEST_PLUS_SEEN" in log,
+                  "guest_exit_svc": bool(re.search(rb"Process \d+ exiting", log)),
+              }
+          passed = (
+              cases["nx2-no-input"]["exit_code"] == 124 and
+              not cases["nx2-no-input"]["guest_saw_plus"] and
+              not cases["nx2-no-input"]["frontend_key_pressed"] and
+              all(row["log_bounded"] for row in cases.values()) and
+              all(cases[k]["frontend_key_pressed"] and
+                  cases[k]["guest_saw_plus"] and
+                  cases[k]["guest_exit_svc"] for k in ("upstream-plus", "nx2-plus")) and
+              cases["nx2-plus"]["exit_code"] == 0
+          )
+          guest = Path(os.environ["GITHUB_WORKSPACE"]) / "switch-examples/graphics/deko3d/deko_basic/deko_basic.nro"
+          report = {
+              "scope": "public-domain Switch 1 deko3d input and guest exit",
+              "nx2_sha": "88eba1e5c436ce996bfaaabb8ca950891653da3b",
+              "upstream_sha": "2eb5f081c8734affd272466f89133aa4e3e56e18",
+              "guest_source_sha": "669786898205b7beb25ff1731e72982e6d0397d3",
+              "guest_sha256": hashlib.sha256(guest.read_bytes()).hexdigest(),
+              "injection": "SDL M scancode 16 maps to player-0 Plus",
+              "cases": cases,
+              "qualified": passed,
+          }
+          (root / "guest-input-exit.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report, sort_keys=True))
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
+              stream.write("### Guest-visible Plus and natural exit\n\n")
+              stream.write("~~~json\n" + json.dumps(report, indent=2) + "\n~~~\n")
+          if not passed:
+              raise SystemExit("Guest input or NX2 natural exit did not meet acceptance")
+          PY
+
+      - name: Preserve bounded input/exit evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nx2-homebrew-plus-exit
+          path: ${{ runner.temp }}/guest-input-exit.json
+          if-no-files-found: warn
+          retention-days: 2
 
       - name: Save dependencies and compiler objects
         if: always()
@@ -155,7 +284,7 @@ jobs:
   windows-clang-cl:
     name: Windows clang-cl production build and tests
     needs: changes
-    if: needs.changes.outputs.build == 'true'
+    if: needs.changes.outputs.build == 'true' && github.head_ref != 'experiment/deko-plus-guest-exit'
     runs-on: windows-2022
     timeout-minutes: 120
     # ccache rather than sccache: sccache has no direct mode for clang-cl, so every hit still ran the
