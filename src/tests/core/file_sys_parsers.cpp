@@ -14,6 +14,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "core/core.h"
 #include "core/file_sys/card_image.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/fssystem/fssystem_bucket_tree.h"
@@ -61,6 +62,20 @@ TEST_CASE("NPDM checks META before interpreting its section offsets", "[core][fi
     npdm.resize(0x7f);
     REQUIRE(metadata.Load(MakeFile(std::move(npdm))) ==
             Loader::ResultStatus::ErrorBadNPDMHeader);
+}
+
+class MissingDirectoryVfs final : public VfsFilesystem {
+public:
+    MissingDirectoryVfs() : VfsFilesystem(nullptr) {}
+
+    VirtualDir OpenDirectory(std::string_view, OpenMode) override {
+        return nullptr;
+    }
+};
+
+TEST_CASE("Missing split game directory returns no file", "[core][file_sys]") {
+    const auto vfs = std::make_shared<MissingDirectoryVfs>();
+    REQUIRE(Core::GetGameFileFromPath(vfs, "missing/00") == nullptr);
 }
 
 // PFS0 with one 0x18-byte entry per name, the names packed into the string table.
