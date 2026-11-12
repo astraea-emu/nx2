@@ -148,7 +148,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: astraea-emu/nx2-lab
-          ref: 7f337f47dfcff4cd31a8f03985b630bab8c51361
+          ref: b69202716aabae3377449223b6464e75b93b222c
           path: nx2-lab-probe
           persist-credentials: false
 
