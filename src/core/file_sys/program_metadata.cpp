@@ -26,7 +26,8 @@ Loader::ResultStatus ProgramMetadata::Load(VirtualFile file) {
         return Loader::ResultStatus::ErrorBadNPDMHeader;
     }
 
-    if (sizeof(Header) != file->ReadObject(&npdm_header)) {
+    if (sizeof(Header) != file->ReadObject(&npdm_header) ||
+        std::memcmp(npdm_header.magic.data(), "META", 4) != 0) {
         return Loader::ResultStatus::ErrorBadNPDMHeader;
     }
 
