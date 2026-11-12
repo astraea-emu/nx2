@@ -96,6 +96,9 @@ FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
 
     if (filename == "00") {
         const auto dir = vfs->OpenDirectory(dir_name, FileSys::OpenMode::Read);
+        if (!dir) {
+            return nullptr;
+        }
         std::vector<FileSys::VirtualFile> concat;
 
         for (u32 i = 0; i < 0x10; ++i) {
@@ -405,15 +408,19 @@ struct System::Impl {
 
     SystemResultStatus Load(System& system, Frontend::EmuWindow& emu_window, const std::string& filepath, Service::AM::FrontendAppletParameters& params) {
         VideoCommon::StutterTrace::BootMarker("boot_start");
+        const FileSys::VirtualFile file =
+            virtual_filesystem ? GetGameFileFromPath(virtual_filesystem, filepath) : nullptr;
+        if (!file) {
+            LOG_CRITICAL(Core, "Game file not found: {}", filepath);
+            return SystemResultStatus::ErrorGetLoader;
+        }
+
         if (params.launch_type == Service::AM::LaunchType::FrontendInitiated) {
             fs_controller.InitTempStorage();
         }
 
         const std::optional<u64> switch2_program_id =
-            virtual_filesystem != nullptr
-                ? FindSwitch2Program(GetGameFileFromPath(virtual_filesystem, filepath),
-                                     params.program_id, params.program_index)
-                : std::nullopt;
+            FindSwitch2Program(file, params.program_id, params.program_index);
         const bool switch2_program = switch2_program_id.has_value();
         Kernel::KSystemControl::SetApplicationProgramId(switch2_program_id.value_or(0));
         Settings::SetCurrentProgramIsSwitch2(switch2_program);
@@ -458,8 +465,6 @@ struct System::Impl {
         if (params.applet_type == Service::AM::AppletType::Application) {
             current_application_filepath = filepath;
         }
-
-        const auto file = GetGameFileFromPath(virtual_filesystem, filepath);
 
         // Create the application process
         Loader::ResultStatus load_result{};

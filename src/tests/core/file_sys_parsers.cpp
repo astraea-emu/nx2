@@ -14,6 +14,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "core/core.h"
 #include "core/file_sys/card_image.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/fssystem/fssystem_bucket_tree.h"
@@ -24,6 +25,7 @@
 #include "core/file_sys/fssystem/fssystem_nca_file_system_driver.h"
 #include "core/file_sys/fssystem/fssystem_nca_header.h"
 #include "core/file_sys/partition_filesystem.h"
+#include "core/file_sys/program_metadata.h"
 #include "core/file_sys/romfs.h"
 #include "core/file_sys/vfs/vfs_vector.h"
 #include "core/loader/loader.h"
@@ -42,6 +44,38 @@ void Put(std::vector<u8>& out, size_t offset, const T& value) {
 
 VirtualFile MakeFile(std::vector<u8> bytes) {
     return std::make_shared<VectorVfsFile>(std::move(bytes), "test.bin");
+}
+
+TEST_CASE("NPDM checks META before interpreting its section offsets", "[core][file_sys]") {
+    std::vector<u8> npdm(0x80, 0);
+    std::memcpy(npdm.data(), "META", 4);
+
+    ProgramMetadata metadata;
+    REQUIRE(metadata.Load(nullptr) == Loader::ResultStatus::ErrorBadNPDMHeader);
+    // A valid signature advances to the next check: the ACID header is absent.
+    REQUIRE(metadata.Load(MakeFile(npdm)) == Loader::ResultStatus::ErrorBadACIDHeader);
+
+    std::memcpy(npdm.data(), "NX2!", 4);
+    REQUIRE(metadata.Load(MakeFile(npdm)) == Loader::ResultStatus::ErrorBadNPDMHeader);
+    REQUIRE(metadata.Reload(MakeFile(npdm)) == Loader::ResultStatus::ErrorBadNPDMHeader);
+
+    npdm.resize(0x7f);
+    REQUIRE(metadata.Load(MakeFile(std::move(npdm))) ==
+            Loader::ResultStatus::ErrorBadNPDMHeader);
+}
+
+class MissingDirectoryVfs final : public VfsFilesystem {
+public:
+    MissingDirectoryVfs() : VfsFilesystem(nullptr) {}
+
+    VirtualDir OpenDirectory(std::string_view, OpenMode) override {
+        return nullptr;
+    }
+};
+
+TEST_CASE("Missing split game directory returns no file", "[core][file_sys]") {
+    const auto vfs = std::make_shared<MissingDirectoryVfs>();
+    REQUIRE(Core::GetGameFileFromPath(vfs, "missing/00") == nullptr);
 }
 
 // PFS0 with one 0x18-byte entry per name, the names packed into the string table.
