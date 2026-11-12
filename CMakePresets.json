@@ -1,0 +1,51 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 31, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "linux-gcc13",
+      "displayName": "Linux GUI, CLI and tests (GCC 13)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "condition": {
+        "type": "allOf",
+        "conditions": [
+          { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+          { "type": "notEquals", "lhs": "$env{QT_ROOT_DIR}", "rhs": "" }
+        ]
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "gcc-13",
+        "CMAKE_CXX_COMPILER": "g++-13",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
+        "ENABLE_WERROR": "ON",
+        "BUILD_TESTING": "ON",
+        "YUZU_TESTS": "ON",
+        "ENABLE_QT": "ON",
+        "ENABLE_QT_TRANSLATION": "ON",
+        "YUZU_CMD": "ON",
+        "YUZU_ROOM": "OFF",
+        "YUZU_ROOM_STANDALONE": "OFF",
+        "YUZU_USE_BUNDLED_QT": "OFF",
+        "YUZU_USE_BUNDLED_SDL3": "ON",
+        "VulkanHeaders_FORCE_BUNDLED": "ON",
+        "VulkanUtilityLibraries_FORCE_BUNDLED": "ON",
+        "ENABLE_UPDATE_CHECKER": "ON",
+        "USE_DISCORD_PRESENCE": "OFF",
+        "USE_CCACHE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux-gcc13", "configurePreset": "linux-gcc13", "jobs": 3 }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-gcc13",
+      "configurePreset": "linux-gcc13",
+      "output": { "outputOnFailure": true },
+      "execution": { "jobs": 3, "noTestsAction": "error" }
+    }
+  ]
+}
