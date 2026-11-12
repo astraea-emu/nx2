@@ -142,13 +142,14 @@ jobs:
           from pathlib import Path
           path = Path("switch-examples/graphics/deko3d/deko_basic/source/main.c")
           original = path.read_text()
-          old = """        if (kDown & HidNpadButton_Plus)
-            break; // break in order to return to hbmenu"""
-          new = """        if (kDown & HidNpadButton_Plus) {
-            const char marker[] = "NX2_GUEST_PLUS_SEEN\\n";
-            svcOutputDebugString(marker, sizeof(marker) - 1);
-            break; // return to homebrew menu
-        }"""
+          old = "        if (kDown & HidNpadButton_Plus)\n            break; // break in order to return to hbmenu"
+          new = (
+              '        if (kDown & HidNpadButton_Plus) {\n'
+              '            const char marker[] = "NX2_GUEST_PLUS_SEEN\\n";\n'
+              '            svcOutputDebugString(marker, sizeof(marker) - 1);\n'
+              '            break; // return to homebrew menu\n'
+              '        }'
+          )
           if original.count(old) != 1:
               raise SystemExit("Pinned homebrew Plus branch does not match")
           path.write_text(original.replace(old, new))
