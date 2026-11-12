@@ -255,6 +255,7 @@ struct SdlState {
     InputCommon::InputSubsystem input_subsystem{};
     std::unique_ptr<EmuWindow_SDL3> emu_window;
     bool network_initialized{};
+    std::atomic_bool exit_requested{false};
 };
 
 constexpr int kRestartExitCode = 75;
@@ -756,8 +757,8 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
             [](VideoCore::LoadCallbackStage, size_t value, size_t total) {});
     }
 
-    // don't do anything, SDL3 already exists for us :D
-    state->system.RegisterExitCallback([] {});
+    // The AM observer can request exit; SDL must perform shutdown on its main thread.
+    state->system.RegisterExitCallback([state] { state->exit_requested = true; });
 
     // A game executing a program (e.g. restarting after a settings change) writes its launch state
     // to the restart handoff and quits with kRestartExitCode; the launcher boots the same file again
@@ -873,7 +874,7 @@ extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
     if (state->emu_window) {
         state->emu_window->ApplyPendingTitle();
     }
-    if (restart_requested) {
+    if (state->exit_requested || restart_requested) {
         return SDL_APP_SUCCESS;
     }
     return state->emu_window && state->emu_window->IsOpen() ? SDL_APP_CONTINUE : SDL_APP_SUCCESS;
