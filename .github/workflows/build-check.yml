@@ -143,6 +143,44 @@ jobs:
       - name: Test Linux switch discovery
         run: CXX=g++-13 python3 tools/nx2/test_switches.py
 
+      # A first-failure probe, not Vulkan qualification.
+      - name: Check out original GPU probe
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: astraea-emu/nx2-lab
+          ref: 7f337f47dfcff4cd31a8f03985b630bab8c51361
+          path: nx2-lab-probe
+          persist-credentials: false
+
+      - name: One-shot software-Vulkan GPU diagnostic (non-gating)
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            binutils-aarch64-linux-gnu mesa-vulkan-drivers vulkan-tools xvfb xauth
+          icds=(/usr/share/vulkan/icd.d/lvp*.json)
+          if [ "${#icds[@]}" -ne 1 ] || [ ! -f "${icds[0]}" ]; then
+            echo "::error::Expected exactly one Lavapipe ICD"
+            exit 1
+          fi
+          python3 nx2-lab-probe/tools/reference/eden_ns2/probe_runtime_gsv435.py \
+            --emulator "$GITHUB_WORKSPACE/build/bin/eden-cli" \
+            --icd "${icds[0]}" --output "$RUNNER_TEMP/nx2-gpu-smoke"
+
+      - name: Record GPU diagnostic separately from build acceptance
+        if: always()
+        run: |
+          echo "### Original GPU diagnostic (not graphics acceptance)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$RUNNER_TEMP/nx2-gpu-smoke/summary.json" ]; then
+            cat "$RUNNER_TEMP/nx2-gpu-smoke/summary.json"
+            echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/nx2-gpu-smoke/summary.json" >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No diagnostic summary was produced; inspect the failed step." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "This does not verify pixels, protocol correctness or game compatibility." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Save dependencies and compiler objects
         if: always()
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
