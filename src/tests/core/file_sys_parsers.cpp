@@ -50,6 +50,7 @@ TEST_CASE("NPDM checks META before interpreting its section offsets", "[core][fi
     std::memcpy(npdm.data(), "META", 4);
 
     ProgramMetadata metadata;
+    REQUIRE(metadata.Load(nullptr) == Loader::ResultStatus::ErrorBadNPDMHeader);
     // A valid signature advances to the next check: the ACID header is absent.
     REQUIRE(metadata.Load(MakeFile(npdm)) == Loader::ResultStatus::ErrorBadACIDHeader);
 
