@@ -41,7 +41,7 @@ jobs:
           echo "build=$build" >> "$GITHUB_OUTPUT"
 
   linux-gcc:
-    name: Linux guest Plus input and natural exit
+    name: Linux NX2 actual homebrew gameplay
     needs: changes
     if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
@@ -126,150 +126,135 @@ jobs:
           ccache --show-stats
 
       # Everything above builds the pinned PR #4 source. No previously passed CTest rerun.
-      - name: Check out public-domain homebrew
+      - name: Check out MIT-licensed Space Game NX source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          repository: switchbrew/switch-examples
-          ref: 669786898205b7beb25ff1731e72982e6d0397d3
-          path: switch-examples
+          repository: vgmoose/space-nx
+          ref: d09ff27498a0baa2d4ab085ef3b4e3a9bc2fa75c
+          path: space-game
           persist-credentials: false
 
-      - name: Build one homebrew with guest Plus marker
+      - name: Build original SDL2 homebrew game
         run: |
-          test "$(git rev-parse HEAD)" = 88eba1e5c436ce996bfaaabb8ca950891653da3b
-          test "$(git -C switch-examples rev-parse HEAD)" = 669786898205b7beb25ff1731e72982e6d0397d3
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("switch-examples/graphics/deko3d/deko_basic/source/main.c")
-          original = path.read_text()
-          old = "        if (kDown & HidNpadButton_Plus)\n            break; // break in order to return to hbmenu"
-          new = (
-              '        if (kDown & HidNpadButton_Plus) {\n'
-              '            const char marker[] = "NX2_GUEST_PLUS_SEEN\\n";\n'
-              '            svcOutputDebugString(marker, sizeof(marker) - 1);\n'
-              '            break; // return to homebrew menu\n'
-              '        }'
-          )
-          if original.count(old) != 1:
-              raise SystemExit("Pinned homebrew Plus branch does not match")
-          path.write_text(original.replace(old, new))
-          PY
+          test "$(git -C space-game rev-parse HEAD)" = d09ff27498a0baa2d4ab085ef3b4e3a9bc2fa75c
           docker pull devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
           docker run --rm --network none \
-            -v "$GITHUB_WORKSPACE/switch-examples:/source" \
-            -w /source/graphics/deko3d/deko_basic \
-            devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282 make -j2
-          test -s switch-examples/graphics/deko3d/deko_basic/deko_basic.nro
+            -e DEVKITPRO=/opt/devkitpro -e DEVKITA64=/opt/devkitpro/devkitA64 \
+            -v "$GITHUB_WORKSPACE/space-game:/source" -w /source \
+            devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282 \
+            make -f Makefile.libnx -j2 \
+              'CFLAGS=-g -O2 -fpermissive -fcommon $(INCLUDE) -DSWITCH -D__LIBNX__ -DNOSTYLUS' \
+              'LIBS=-lSDL2 -lEGL -lglapi -ldrm_nouveau -lnx -lm -lstdc++'
+          test -s space-game/spacenx.nro
           test -x build/bin/eden-cli
 
-      - name: Obtain checksum-verified upstream build-160
+      - name: Run source-built NX2 game menu to gameplay
         run: |
-          curl -fL --retry 2 --max-time 240 -o "$RUNNER_TEMP/lichii.tar.gz" \
-            https://github.com/zortos293/Lichii/releases/download/build-160/lichii-linux-x86_64.tar.gz
-          echo "8808893f08062c9a450234a3988eb2291dcda9d686a4d7e8780c0b6b6ec21962  $RUNNER_TEMP/lichii.tar.gz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/upstream-package"
-          tar -xzf "$RUNNER_TEMP/lichii.tar.gz" -C "$RUNNER_TEMP/upstream-package"
-          test -x "$RUNNER_TEMP/upstream-package/lichii/eden-cli"
-
-      - name: Execute bounded no-input and Plus-input comparisons
-        timeout-minutes: 5
-        run: |
-          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers xvfb xauth
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers xvfb xauth python3-pil imagemagick
           icds=(/usr/share/vulkan/icd.d/lvp*.json)
           test "${#icds[@]}" -eq 1
-          test -f "${icds[0]}"
-          for label in nx2-no-input upstream-plus nx2-plus; do
-            base="$RUNNER_TEMP/$label"
-            mkdir -p "$base/home"/{config,data,cache,runtime}
-            chmod 700 "$base/home/runtime"
-            printf '[Renderer]\nbackend=1\nbackend\\default=false\n[Audio]\noutput_engine=3\noutput_engine\\default=false\n' > "$base/runtime.ini"
-            if [ "$label" = upstream-plus ]; then
-              binary="$RUNNER_TEMP/upstream-package/lichii/eden-cli"
-            else
-              binary="$GITHUB_WORKSPACE/build/bin/eden-cli"
-            fi
-            (
-              export HOME="$base/home" XDG_CONFIG_HOME="$base/home/config"
-              export XDG_DATA_HOME="$base/home/data" XDG_CACHE_HOME="$base/home/cache"
-              export XDG_RUNTIME_DIR="$base/home/runtime"
-              export VK_DRIVER_FILES="${icds[0]}" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy
-              if [ "$label" != nx2-no-input ]; then
-                export EDEN_NX2_KEY_SCRIPT="6:16,10:-16"
-              else
-                unset EDEN_NX2_KEY_SCRIPT
-              fi
-              set +e
-              timeout --signal=TERM --kill-after=3s 18s \
-                xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' \
-                "$binary" --config "$base/runtime.ini" \
-                --game "$GITHUB_WORKSPACE/switch-examples/graphics/deko3d/deko_basic/deko_basic.nro" \
-                > "$base/console.log" 2>&1
-              printf '%s\n' "$?" > "$base/exit.txt"
-            )
-          done
+          mkdir -p "$RUNNER_TEMP/home"/{config,data,cache,runtime}
+          chmod 700 "$RUNNER_TEMP/home/runtime"
+          printf '[Renderer]\nbackend=1\nbackend\\default=false\n[Audio]\noutput_engine=3\noutput_engine\\default=false\n' > "$RUNNER_TEMP/runtime.ini"
+          export HOME="$RUNNER_TEMP/home" XDG_CONFIG_HOME="$RUNNER_TEMP/home/config"
+          export XDG_DATA_HOME="$RUNNER_TEMP/home/data" XDG_CACHE_HOME="$RUNNER_TEMP/home/cache"
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/home/runtime"
+          export VK_DRIVER_FILES="${icds[0]}" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy
+          # SDL scancode A (4) maps to emulated controller A; the game uses it at "Start Game".
+          export EDEN_NX2_KEY_SCRIPT="3:4,3.5:-4"
+          export EDEN_NX2_FRAME_DUMP="$RUNNER_TEMP/frame-dump" EDEN_NX2_FRAME_DUMP_AT=1f
+          set +e
+          xvfb-run -a -s '-screen 0 1920x1080x24 -nolisten tcp' \
+            bash -c '
+              timeout --signal=TERM --kill-after=3s 15s "$@" &
+              child=$!
+              sleep 8
+              import -window root "$RUNNER_TEMP/desktop.png" || true
+              wait "$child"
+            ' bash "$GITHUB_WORKSPACE/build/bin/eden-cli" \
+            --config "$RUNNER_TEMP/runtime.ini" \
+            --game "$GITHUB_WORKSPACE/space-game/spacenx.nro" \
+            > "$RUNNER_TEMP/console.log" 2>&1
+          printf '%s\n' "$?" > "$RUNNER_TEMP/exit.txt"
+          exit 0
 
-      - name: Require guest-originated input and classify natural exit
+      - name: Inspect first completed game frame (no correctness claim)
         run: |
-          python3 - <<'PY'
+          /usr/bin/python3 - <<'PY'
           import hashlib
           import json
           import os
-          import re
           from pathlib import Path
+          from PIL import Image
 
           root = Path(os.environ["RUNNER_TEMP"])
-          cases = {}
-          for label in ("nx2-no-input", "upstream-plus", "nx2-plus"):
-              folder = root / label
-              with (folder / "console.log").open("rb") as stream:
-                  log = stream.read(8 * 1024 * 1024 + 1)
-              engine_log = folder / "home/data/lichii/log/eden_log.txt"
-              if engine_log.is_file():
-                  with engine_log.open("rb") as stream:
-                      log += stream.read(max(0, 8 * 1024 * 1024 + 1 - len(log)))
-              cases[label] = {
-                  "exit_code": int((folder / "exit.txt").read_text()),
-                  "log_bounded": len(log) <= 8 * 1024 * 1024,
-                  "frontend_key_pressed": b"Key script: press key 16" in log,
-                  "guest_saw_plus": b"NX2_GUEST_PLUS_SEEN" in log,
-                  "guest_exit_svc": bool(re.search(rb"Process \d+ exiting", log)),
-              }
-          passed = (
-              cases["nx2-no-input"]["exit_code"] == 124 and
-              not cases["nx2-no-input"]["guest_saw_plus"] and
-              not cases["nx2-no-input"]["frontend_key_pressed"] and
-              all(row["log_bounded"] for row in cases.values()) and
-              all(cases[k]["frontend_key_pressed"] and
-                  cases[k]["guest_saw_plus"] and
-                  cases[k]["guest_exit_svc"] for k in ("upstream-plus", "nx2-plus")) and
-              cases["nx2-plus"]["exit_code"] == 0
-          )
-          guest = Path(os.environ["GITHUB_WORKSPACE"]) / "switch-examples/graphics/deko3d/deko_basic/deko_basic.nro"
-          report = {
-              "scope": "public-domain Switch 1 deko3d input and guest exit",
-              "nx2_sha": "88eba1e5c436ce996bfaaabb8ca950891653da3b",
-              "upstream_sha": "2eb5f081c8734affd272466f89133aa4e3e56e18",
-              "guest_source_sha": "669786898205b7beb25ff1731e72982e6d0397d3",
-              "guest_sha256": hashlib.sha256(guest.read_bytes()).hexdigest(),
-              "injection": "SDL M scancode 16 maps to player-0 Plus",
-              "cases": cases,
-              "qualified": passed,
+          images = sorted((root / "frame-dump").glob("*_present_*.png"))
+          captures = []
+          for image_file in images[:4]:
+              with Image.open(image_file) as png:
+                  rgb = png.convert("RGB")
+                  color_counts = rgb.getcolors(maxcolors=2048)
+                  captures.append({
+                      "resolution": list(rgb.size),
+                      "sha256": hashlib.sha256(image_file.read_bytes()).hexdigest(),
+                      "unique_rgb_colors": len(color_counts) if color_counts is not None else ">2048",
+                  })
+          desktop_file = root / "desktop.png"
+          desktop = None
+          if desktop_file.is_file():
+              with Image.open(desktop_file) as screenshot:
+                  rgb = screenshot.convert("RGB")
+                  nonblack = sum(any(channel > 8 for channel in pixel) for pixel in rgb.getdata())
+                  desktop = {
+                      "resolution": list(rgb.size),
+                      "nonblack_fraction": round(nonblack / (rgb.width * rgb.height), 6),
+                      "sha256": hashlib.sha256(desktop_file.read_bytes()).hexdigest(),
+                  }
+          with (root / "console.log").open("rb") as stream:
+              log = stream.read(4 * 1024 * 1024 + 1)
+          startup_flags = {
+              "sdl_init_failed": b"SDL init failed" in log,
+              "window_create_failed": b"window could not be created" in log,
+              "guest_program_log_seen": b"initialized SDL" in log,
+              "renderer_frame_dump_armed": b"Frame dump armed" in log,
+              "frontend_a_press_logged": b"Key script: press key 4" in log,
           }
-          (root / "guest-input-exit.json").write_text(json.dumps(report, indent=2) + "\n")
+          report = {
+              "scope": "MIT-licensed Switch 1 SDL2 space game; source-built NX2 only",
+              "input_attempt": "one emulated A press at 3.0 s, released at 3.5 s; gameplay not assumed",
+              "desktop": desktop,
+              "startup_flags": startup_flags,
+              "log_bounded": len(log) <= 4 * 1024 * 1024,
+              "game_source_sha": "d09ff27498a0baa2d4ab085ef3b4e3a9bc2fa75c",
+              "nx2_sha": "88eba1e5c436ce996bfaaabb8ca950891653da3b",
+              "nro_sha256": hashlib.sha256(
+                  (Path(os.environ["GITHUB_WORKSPACE"]) / "space-game/spacenx.nro").read_bytes()
+              ).hexdigest(),
+              "process_exit": int((root / "exit.txt").read_text().strip()),
+              "present_images": captures,
+              "pixel_correctness_verified": False,
+              "input_verified": False,
+          }
           print(json.dumps(report, sort_keys=True))
-          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
-              stream.write("### Guest-visible Plus and natural exit\n\n")
-              stream.write("~~~json\n" + json.dumps(report, indent=2) + "\n~~~\n")
-          if not passed:
-              raise SystemExit("Guest input or NX2 natural exit did not meet acceptance")
+          (root / "space-game-summary.json").write_text(json.dumps(report, indent=2) + "\n")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as out:
+              out.write("### Space Game NX — source-built NX2 gameplay\n\n")
+              out.write("~~~json\n" + json.dumps(report, indent=2) + "\n~~~\n")
+              out.write("Presence of a capture is not proof of correct gameplay, input or Switch 2 compatibility.\n")
+          print("GAME_FRAME_STATUS=" + ("vulkan_capture" if captures else "not_captured"))
+          # A desktop image or Vulkan dump alone does not establish game correctness.
           PY
 
-      - name: Preserve bounded input/exit evidence only
+      - name: Preserve only public-domain frame images
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nx2-homebrew-plus-exit
-          path: ${{ runner.temp }}/guest-input-exit.json
+          name: space-game-nx2-gameplay
+          path: |
+            ${{ runner.temp }}/space-game-summary.json
+            ${{ runner.temp }}/frame-dump/*_present_*.png
+            ${{ runner.temp }}/desktop.png
           if-no-files-found: warn
           retention-days: 2
 
