@@ -1886,8 +1886,8 @@ void Device::RemoveUnsuitableExtensions() {
     RemoveExtensionFeatureIfUnsuitable(extensions.maintenance5, features.maintenance5,
                                        VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
 
-    // VK_KHR_pipeline_binary needs maintenance5 for the capture flag. Follow the driver's
-    // advertised cache preference: vendor identity does not establish persistent disk caching.
+    // VK_KHR_pipeline_binary needs maintenance5 for capture. Permit AMDVLK's explicit store
+    // when it does not prefer its internal cache; preserve the NVIDIA disk-use safeguard.
     if (extensions.pipeline_binary) {
         LOG_INFO(Render_Vulkan,
                  "VK_KHR_pipeline_binary: pipelineBinaries {}, internal cache {}, prefers internal "
@@ -1899,7 +1899,8 @@ void Device::RemoveUnsuitableExtensions() {
     }
     extensions.pipeline_binary = ShouldEnablePipelineBinaryStore(
         extensions.pipeline_binary, features.pipeline_binary.pipelineBinaries,
-        extensions.maintenance5, properties.pipeline_binary.pipelineBinaryPrefersInternalCache);
+        extensions.maintenance5, properties.pipeline_binary.pipelineBinaryPrefersInternalCache,
+        properties.driver.driverID);
     RemoveExtensionFeatureIfUnsuitable(extensions.pipeline_binary, features.pipeline_binary,
                                        VK_KHR_PIPELINE_BINARY_EXTENSION_NAME);
 

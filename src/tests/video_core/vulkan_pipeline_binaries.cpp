@@ -66,11 +66,17 @@ TEST_CASE("Vulkan pipeline binary store follows driver cache preference",
           "[vulkan_pipeline_binaries]") {
     using Vulkan::ShouldEnablePipelineBinaryStore;
 
-    CHECK(ShouldEnablePipelineBinaryStore(true, true, true, false));
-    CHECK_FALSE(ShouldEnablePipelineBinaryStore(true, true, true, true));
-    CHECK_FALSE(ShouldEnablePipelineBinaryStore(false, true, true, false));
-    CHECK_FALSE(ShouldEnablePipelineBinaryStore(true, false, true, false));
-    CHECK_FALSE(ShouldEnablePipelineBinaryStore(true, true, false, false));
+    CHECK(ShouldEnablePipelineBinaryStore(true, true, true, false, VK_DRIVER_ID_AMD_PROPRIETARY));
+    CHECK(ShouldEnablePipelineBinaryStore(true, true, true, false, VK_DRIVER_ID_MESA_RADV));
+    CHECK_FALSE(
+        ShouldEnablePipelineBinaryStore(true, true, true, false, VK_DRIVER_ID_NVIDIA_PROPRIETARY));
+    CHECK_FALSE(ShouldEnablePipelineBinaryStore(true, true, true, true, VK_DRIVER_ID_AMD_PROPRIETARY));
+    CHECK_FALSE(
+        ShouldEnablePipelineBinaryStore(false, true, true, false, VK_DRIVER_ID_AMD_PROPRIETARY));
+    CHECK_FALSE(
+        ShouldEnablePipelineBinaryStore(true, false, true, false, VK_DRIVER_ID_AMD_PROPRIETARY));
+    CHECK_FALSE(
+        ShouldEnablePipelineBinaryStore(true, true, false, false, VK_DRIVER_ID_AMD_PROPRIETARY));
 }
 
 // Needs a Vulkan driver with VK_KHR_pipeline_binary that doesn't prefer its own cache (RADV, for

@@ -217,10 +217,11 @@ VK_DEFINE_HANDLE(VmaPool)
 
 namespace Vulkan {
 
-// Use the driver's explicit caching preference, not its vendor ID, for the external binary store.
+// NVIDIA's exceptionally large captured binaries remain excluded from the external store.
 constexpr bool ShouldEnablePipelineBinaryStore(bool extension, bool feature, bool maintenance5,
-                                               bool prefers_internal_cache) {
-    return extension && feature && maintenance5 && !prefers_internal_cache;
+                                               bool prefers_internal_cache, VkDriverId driver_id) {
+    return extension && feature && maintenance5 && !prefers_internal_cache &&
+           driver_id != VK_DRIVER_ID_NVIDIA_PROPRIETARY;
 }
 
 class NsightAftermathTracker;
