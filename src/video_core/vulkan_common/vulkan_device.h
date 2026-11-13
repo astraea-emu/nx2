@@ -217,6 +217,12 @@ VK_DEFINE_HANDLE(VmaPool)
 
 namespace Vulkan {
 
+// Use the driver's explicit caching preference, not its vendor ID, for the external binary store.
+constexpr bool ShouldEnablePipelineBinaryStore(bool extension, bool feature, bool maintenance5,
+                                               bool prefers_internal_cache) {
+    return extension && feature && maintenance5 && !prefers_internal_cache;
+}
+
 class NsightAftermathTracker;
 
 /// Format usage descriptor.
