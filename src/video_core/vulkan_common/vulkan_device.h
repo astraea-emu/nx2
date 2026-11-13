@@ -217,6 +217,13 @@ VK_DEFINE_HANDLE(VmaPool)
 
 namespace Vulkan {
 
+// NVIDIA's exceptionally large captured binaries remain excluded from the external store.
+constexpr bool ShouldEnablePipelineBinaryStore(bool extension, bool feature, bool maintenance5,
+                                               bool prefers_internal_cache, VkDriverId driver_id) {
+    return extension && feature && maintenance5 && !prefers_internal_cache &&
+           driver_id != VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+}
+
 class NsightAftermathTracker;
 
 /// Format usage descriptor.

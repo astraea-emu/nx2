@@ -1886,10 +1886,8 @@ void Device::RemoveUnsuitableExtensions() {
     RemoveExtensionFeatureIfUnsuitable(extensions.maintenance5, features.maintenance5,
                                        VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
 
-    // VK_KHR_pipeline_binary (needs maintenance5 for the capture flag), kept to drivers without a
-    // disk cache of their own (DriverCachesPipelines) that don't prefer their internal cache: the
-    // store would only duplicate it there (PipelineBinaries). NVIDIA 610.88 also gave ~7.8 MB of
-    // blobs a pipeline: one Ocarina of Time session stored 2.3 GB.
+    // VK_KHR_pipeline_binary needs maintenance5 for capture. Permit AMDVLK's explicit store
+    // when it does not prefer its internal cache; preserve the NVIDIA disk-use safeguard.
     if (extensions.pipeline_binary) {
         LOG_INFO(Render_Vulkan,
                  "VK_KHR_pipeline_binary: pipelineBinaries {}, internal cache {}, prefers internal "
@@ -1899,9 +1897,10 @@ void Device::RemoveUnsuitableExtensions() {
                  properties.pipeline_binary.pipelineBinaryPrefersInternalCache != VK_FALSE,
                  properties.pipeline_binary.pipelineBinaryCompressedData != VK_FALSE);
     }
-    extensions.pipeline_binary =
-        features.pipeline_binary.pipelineBinaries && extensions.maintenance5 &&
-        !properties.pipeline_binary.pipelineBinaryPrefersInternalCache && !DriverCachesPipelines();
+    extensions.pipeline_binary = ShouldEnablePipelineBinaryStore(
+        extensions.pipeline_binary, features.pipeline_binary.pipelineBinaries,
+        extensions.maintenance5, properties.pipeline_binary.pipelineBinaryPrefersInternalCache,
+        properties.driver.driverID);
     RemoveExtensionFeatureIfUnsuitable(extensions.pipeline_binary, features.pipeline_binary,
                                        VK_KHR_PIPELINE_BINARY_EXTENSION_NAME);
 
