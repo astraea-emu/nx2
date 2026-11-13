@@ -62,6 +62,17 @@ u64 BinaryBuilds() {
 
 } // Anonymous namespace
 
+TEST_CASE("Vulkan pipeline binary store follows driver cache preference",
+          "[vulkan_pipeline_binaries]") {
+    using Vulkan::ShouldEnablePipelineBinaryStore;
+
+    CHECK(ShouldEnablePipelineBinaryStore(true, true, true, false));
+    CHECK_FALSE(ShouldEnablePipelineBinaryStore(true, true, true, true));
+    CHECK_FALSE(ShouldEnablePipelineBinaryStore(false, true, true, false));
+    CHECK_FALSE(ShouldEnablePipelineBinaryStore(true, false, true, false));
+    CHECK_FALSE(ShouldEnablePipelineBinaryStore(true, true, false, false));
+}
+
 // Needs a Vulkan driver with VK_KHR_pipeline_binary that doesn't prefer its own cache (RADV, for
 // one: Mesa's amdgpu drm-shim runs it without a GPU):
 //   ./tests "[vulkan_pipeline_binaries]"
