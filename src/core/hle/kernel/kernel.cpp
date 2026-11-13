@@ -120,13 +120,16 @@ struct KernelCore::Impl {
     }
 
     void TerminateAllProcesses() {
-        std::scoped_lock lk{process_list_lock};
-        for (auto& process : process_list) {
+        std::vector<KProcess*> processes;
+        {
+            std::scoped_lock lk{process_list_lock};
+            processes.swap(process_list);
+        }
+        // Finalization removes processes from the registry; do not hold its lock while waiting.
+        for (auto* process : processes) {
             process->Terminate(system.Kernel());
             process->Close(system.Kernel());
-            process = nullptr;
         }
-        process_list.clear();
     }
 
     void Shutdown(KernelCore& kernel) {
