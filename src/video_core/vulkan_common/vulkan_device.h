@@ -220,6 +220,13 @@ VK_DEFINE_HANDLE(VmaPool)
 
 namespace Vulkan {
 
+// Preserve NVIDIA's disk-use safeguard while permitting AMDVLK's explicit binary cache.
+constexpr bool ShouldEnablePipelineBinaryStore(bool extension, bool feature, bool maintenance5,
+                                               bool prefers_internal_cache, VkDriverId driver_id) {
+    return extension && feature && maintenance5 && !prefers_internal_cache &&
+           driver_id != VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+}
+
 class NsightAftermathTracker;
 
 /// Format usage descriptor.
