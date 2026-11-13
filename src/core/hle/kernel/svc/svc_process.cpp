@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/core.h"
@@ -18,7 +17,7 @@ void ExitProcess(Core::System& system) {
     ASSERT_MSG(current_process->GetState() == KProcess::State::Running,
                "Process has already exited");
 
-    system.Exit();
+    current_process->Exit(system.Kernel());
 }
 
 /// Gets the ID of the specified process or a specified thread's owning process.

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstddef>
@@ -21,12 +20,16 @@ ProgramMetadata::ProgramMetadata() = default;
 ProgramMetadata::~ProgramMetadata() = default;
 
 Loader::ResultStatus ProgramMetadata::Load(VirtualFile file) {
+    if (!file) {
+        return Loader::ResultStatus::ErrorBadNPDMHeader;
+    }
     const std::size_t total_size = file->GetSize();
     if (total_size < sizeof(Header)) {
         return Loader::ResultStatus::ErrorBadNPDMHeader;
     }
 
-    if (sizeof(Header) != file->ReadObject(&npdm_header)) {
+    if (sizeof(Header) != file->ReadObject(&npdm_header) ||
+        std::memcmp(npdm_header.magic.data(), "META", 4) != 0) {
         return Loader::ResultStatus::ErrorBadNPDMHeader;
     }
 

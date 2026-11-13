@@ -23,7 +23,9 @@ public:
     }
 
     ~LibUSBContext() {
-        libusb_exit(ctx);
+        if (init_result == LIBUSB_SUCCESS) {
+            libusb_exit(ctx);
+        }
     }
 
     LibUSBContext& operator=(const LibUSBContext&) = delete;
@@ -41,7 +43,7 @@ public:
     }
 
 private:
-    libusb_context* ctx;
+    libusb_context* ctx{};
     int init_result{};
 };
 

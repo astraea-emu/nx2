@@ -6,6 +6,7 @@
 #include "common/scope_exit.h"
 #include "core/core.h"
 #include "core/device_memory.h"
+#include "core/file_sys/vfs/vfs_vector.h"
 #include "core/frontend/emu_window.h"
 #include "core/frontend/graphics_context.h"
 #include "core/hle/service/am/applet_manager.h"
@@ -48,13 +49,22 @@ TEST_CASE("System rejects missing guest memory before kernel initialization and 
     }
     REQUIRE(allocations.FallbackAttempts() == 1);
 
+    // Reach allocation failure through a readable input, not a missing-path rejection.
+    const auto input = std::make_shared<FileSys::VectorVfsFile>(
+        std::vector<u8>{'N', 'S', 'O', '0'}, "memory-failure.nso");
+    const auto directory = std::make_shared<FileSys::VectorVfsDirectory>(
+        std::vector<FileSys::VirtualFile>{input});
+    system.SetFilesystem(std::make_shared<FileSys::VfsFilesystem>(directory));
+
     MemoryFailureWindow window;
     Service::AM::FrontendAppletParameters params{};
     params.launch_type = Service::AM::LaunchType::ApplicationInitiated;
-    CHECK(system.Load(window, "", params) == Core::SystemResultStatus::ErrorMemoryAllocation);
+    CHECK(system.Load(window, "memory-failure.nso", params) ==
+          Core::SystemResultStatus::ErrorMemoryAllocation);
     CHECK_FALSE(system.IsPoweredOn());
     CHECK(allocations.FallbackAttempts() == 2);
-    CHECK(system.Load(window, "", params) == Core::SystemResultStatus::ErrorMemoryAllocation);
+    CHECK(system.Load(window, "memory-failure.nso", params) ==
+          Core::SystemResultStatus::ErrorMemoryAllocation);
     CHECK(allocations.FallbackAttempts() == 3);
 
     allocations.AllowFallback();

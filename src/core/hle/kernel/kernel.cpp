@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// SPDX-FileCopyrightText: Copyright 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <array>
@@ -121,13 +120,16 @@ struct KernelCore::Impl {
     }
 
     void TerminateAllProcesses() {
-        std::scoped_lock lk{process_list_lock};
-        for (auto& process : process_list) {
+        std::vector<KProcess*> processes;
+        {
+            std::scoped_lock lk{process_list_lock};
+            processes.swap(process_list);
+        }
+        // Finalization removes processes from the registry; do not hold its lock while waiting.
+        for (auto* process : processes) {
             process->Terminate(system.Kernel());
             process->Close(system.Kernel());
-            process = nullptr;
         }
-        process_list.clear();
     }
 
     void Shutdown(KernelCore& kernel) {
@@ -1225,25 +1227,32 @@ const Kernel::KSharedMemory& KernelCore::GetHidBusSharedMem() const {
     return *impl->hidbus_shared_mem;
 }
 
+void KernelCore::RequestSuspendEmulation() {
+    for (auto& process : GetProcessList()) {
+        KScopedLightLock ll{process->GetListLock()};
+
+        for (auto& thread : process->GetThreadList()) {
+            thread.RequestSuspend(*this, SuspendType::System);
+        }
+    }
+}
+
 void KernelCore::SuspendEmulation(bool suspended) {
     const bool should_suspend{exception_exited || suspended};
     auto processes = GetProcessList();
 
-    for (auto& process : processes) {
-        KScopedLightLock ll{process->GetListLock()};
+    if (!should_suspend) {
+        for (auto& process : processes) {
+            KScopedLightLock ll{process->GetListLock()};
 
-        for (auto& thread : process->GetThreadList()) {
-            if (should_suspend) {
-                thread.RequestSuspend(*this, SuspendType::System);
-            } else {
+            for (auto& thread : process->GetThreadList()) {
                 thread.Resume(*this, SuspendType::System);
             }
         }
-    }
-
-    if (!should_suspend) {
         return;
     }
+
+    RequestSuspendEmulation();
 
     // Wait for process execution to stop.
     // KernelCore::SuspendEmulation must be called from locked context,
